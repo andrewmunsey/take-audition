@@ -1,5 +1,5 @@
 'use strict';
-const $=id=>document.getElementById(id), S={takes:[],active:null,pending:null,playing:false,source:null,position:0,started:0,base:0,pinned:null,focus:false,zoom:1,markers:[]};let ctx,frame;
+const $=id=>document.getElementById(id), S={takes:[],active:null,pending:null,playing:false,source:null,position:0,started:0,base:0,pinned:null,focus:false,zoom:1,rowHeight:83,markers:[]};let ctx,frame;
 const fmt=n=>{n=Math.max(0,n);const min=Math.floor(n/60),sec=Math.floor(n%60),hundredths=Math.floor((n-Math.floor(n))*100);return `${min}:${String(sec).padStart(2,'0')}.${String(hundredths).padStart(2,'0')}`};
 const colors=['#9eabbc','#4f96ff','#55cb8e','#b37aeb','#e9b44a','#e36f9b','#48c6cc'];
 const find=id=>S.takes.find(t=>t.id===id), maxDur=()=>Math.max(1,...S.takes.map(t=>t.buf.duration));
@@ -13,7 +13,41 @@ async function load(files){ctx ||=new (window.AudioContext||window.webkitAudioCo
 function xAt(t,time,w){return 12+t.offset+time*w*S.zoom/maxDur()}
 function timeAt(t,x,w){return (x-12-t.offset)*maxDur()/(w*S.zoom)}
 function draw(t,canvas){let w=canvas.clientWidth,h=canvas.clientHeight;if(!w||!h)return;let d=window.devicePixelRatio||1;canvas.width=w*d;canvas.height=h*d;let c=canvas.getContext('2d');c.scale(d,d);let x=12+t.offset,width=t.buf.duration*w*S.zoom/maxDur();c.fillStyle=t.color+'25';c.fillRect(x,8,width,h-16);c.strokeStyle=t.color+'99';c.strokeRect(x,8,width,h-16);c.fillStyle=t.color;let step=Math.max(1,Math.ceil(t.peaks.length/Math.max(1,width)));for(let i=0;i<t.peaks.length;i+=step){let a=0;for(let j=i;j<Math.min(t.peaks.length,i+step);j++)a=Math.max(a,t.peaks[j]);let xx=x+i/t.peaks.length*width,hh=Math.max(1,a*(h-20)*.48);c.fillRect(xx,h/2-hh,Math.max(1,width*step/t.peaks.length),hh*2)}for(let m of S.markers.filter(m=>m.id===t.id)){let xx=xAt(t,m.time,w);c.fillStyle='#7df2ba';c.fillRect(xx,3,2,h-6);c.font='11px sans-serif';c.fillText(m.label,xx+4,14)}}
-function makeRow(t){let el=document.createElement('div');el.className='take'+(S.active===t.id?' active':'');el.dataset.id=t.id;let name=document.createElement('div');name.className='name';let b=document.createElement('b');b.textContent=t.name;let small=document.createElement('small');small.textContent=fmt(t.buf.duration);let pin=document.createElement('button');pin.textContent=S.pinned===t.id?'Unpin':'Pin';pin.onclick=()=>{S.pinned=S.pinned===t.id?null:t.id;render()};b.title=t.name;b.addEventListener('click',()=>cue(t.id,0));name.append(b,small,pin);let wave=document.createElement('div');wave.className='wave';let canvas=document.createElement('canvas');let cursor=document.createElement('div');cursor.className='cursor';let handle=document.createElement('button');handle.className='handle';handle.textContent='⇆';wave.append(canvas,cursor,handle);el.append(name,wave);wave.addEventListener('click',e=>{if(e.target===handle||wave.dataset.dragged==='1'){wave.dataset.dragged='0';return;}let rect=wave.getBoundingClientRect();cue(t.id,timeAt(t,e.clientX-rect.left,rect.width))});let sx,ox;handle.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();sx=e.clientX;ox=t.offset;handle.setPointerCapture(e.pointerId)});handle.addEventListener('pointermove',e=>{if(sx===undefined)return;t.offset=ox+e.clientX-sx;redraw()});handle.addEventListener('pointerup',()=>sx=undefined);handle.addEventListener('pointercancel',()=>sx=undefined);wave.addEventListener('dblclick',e=>e.preventDefault());return el}
+function makeRow(t){let el=document.createElement('div');el.className='take'+(S.active===t.id?' active':'');el.dataset.id=t.id;el.style.height=S.rowHeight+'px';let name=document.createElement('div');name.className='name';let b=document.createElement('b');b.textContent=t.name;let small=document.createElement('small');small.textContent=fmt(t.buf.duration);let pin=document.createElement('button');pin.textContent=S.pinned===t.id?'Unpin':'Pin';pin.onclick=()=>{S.pinned=S.pinned===t.id?null:t.id;render()};b.title=t.name;b.addEventListener('click',()=>cue(t.id,0));name.append(b,small,pin);let wave=document.createElement('div');wave.className='wave';let canvas=document.createElement('canvas');let cursor=document.createElement('div');cursor.className='cursor';let handle=document.createElement('button');handle.className='handle';handle.textContent='⇆';wave.append(canvas,cursor,handle);el.append(name,wave);wave.addEventListener('click',e=>{if(e.target===handle||wave.dataset.dragged==='1'){wave.dataset.dragged='0';return;}let rect=wave.getBoundingClientRect();cue(t.id,timeAt(t,e.clientX-rect.left,rect.width))});let sx,ox;handle.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();sx=e.clientX;ox=t.offset;handle.setPointerCapture(e.pointerId)});handle.addEventListener('pointermove',e=>{if(sx===undefined)return;t.offset=ox+e.clientX-sx;redraw()});handle.addEventListener('pointerup',()=>sx=undefined);handle.addEventListener('pointercancel',()=>sx=undefined);installGestures(wave,t);wave.addEventListener('dblclick',e=>e.preventDefault());return el}
+
+function installGestures(wave,t){
+  const touches=new Map();let gesture=null,suppressClick=false;
+  const point=e=>({x:e.clientX,y:e.clientY});
+  const metrics=()=>{const p=[...touches.values()];return {cx:(p[0].x+p[1].x)/2,cy:(p[0].y+p[1].y)/2,dx:Math.abs(p[0].x-p[1].x),dy:Math.abs(p[0].y-p[1].y)}};
+  wave.addEventListener('pointerdown',e=>{
+    if(e.target.closest('.handle')||e.pointerType==='mouse')return;
+    touches.set(e.pointerId,point(e));
+    if(touches.size===2){
+      const m=metrics();gesture={...m,zoom:S.zoom,height:S.rowHeight,offset:t.offset,anchor:timeAt(t,m.cx-wave.getBoundingClientRect().left,wave.clientWidth)};
+      suppressClick=true;wave.setPointerCapture(e.pointerId);e.preventDefault();
+    }
+  });
+  wave.addEventListener('pointermove',e=>{
+    if(!touches.has(e.pointerId))return;touches.set(e.pointerId,point(e));
+    if(touches.size!==2||!gesture)return;
+    const m=metrics(),rect=wave.getBoundingClientRect();
+    const hRatio=gesture.dx>18?m.dx/gesture.dx:1;
+    const vRatio=gesture.dy>18?m.dy/gesture.dy:1;
+    S.zoom=Math.max(.4,Math.min(16,gesture.zoom*hRatio));
+    S.rowHeight=Math.max(52,Math.min(240,Math.round(gesture.height*vRatio)));
+    // Keep the time under the gesture midpoint anchored while allowing a two-finger translation.
+    t.offset=m.cx-rect.left-12-gesture.anchor*wave.clientWidth*S.zoom/maxDur();
+    document.querySelectorAll('.take').forEach(row=>row.style.height=S.rowHeight+'px');
+    $('zoom').textContent=S.zoom===1?'Fit':S.zoom.toFixed(1)+'×';
+    redraw();e.preventDefault();
+  });
+  const end=e=>{
+    if(!touches.has(e.pointerId))return;touches.delete(e.pointerId);
+    if(touches.size<2)gesture=null;
+    if(suppressClick){wave.dataset.dragged='1';setTimeout(()=>{wave.dataset.dragged='0';suppressClick=false},350)}
+  };
+  wave.addEventListener('pointerup',end);wave.addEventListener('pointercancel',end);
+}
 function redraw(){document.querySelectorAll('.take').forEach(el=>{let t=find(el.dataset.id);if(t)draw(t,el.querySelector('canvas'))});cursors()}
 function cursors(){document.querySelectorAll('.take').forEach(el=>{let t=find(el.dataset.id),v=el.querySelector('.wave'),cur=el.querySelector('.cursor'),pending=S.pending?.id===t.id;if(!pending&&S.active!==t.id){cur.hidden=true;return}cur.hidden=false;cur.classList.toggle('pending',pending);cur.style.left=xAt(t,pending?S.pending.time:pos(),v.clientWidth)+'px'});let t=find(S.active);$('now').firstChild.textContent=t?.name||'No Take selected';$('clock').textContent=t?`${fmt(pos())} / ${fmt(t.buf.duration)}`:'0:00.000';$('play').textContent=S.playing?'Ⅱ':'▶'}
 function render(){let visible=S.focus&&S.active?S.takes.filter(t=>t.id===S.active||t.id===S.pinned):S.takes;$('rows').replaceChildren();$('pinned').replaceChildren();for(let t of visible)(S.pinned===t.id?$('pinned'):$('rows')).append(makeRow(t));$('empty').hidden=!!S.takes.length;$('count').textContent=S.takes.length+' Takes';$('pinlabel').textContent=S.pinned?'· 1 pinned':'';$('focus').style.background=S.focus?'#316b8a':'';$('zoom').textContent=S.zoom===1?'Fit':S.zoom.toFixed(1)+'×';$('markers').replaceChildren();for(let m of S.markers){let el=document.createElement('div');el.textContent=m.label+' — '+find(m.id).name;let sm=document.createElement('small');sm.textContent=fmt(m.time);el.append(sm);el.onclick=()=>cue(m.id,m.time);$('markers').append(el)}requestAnimationFrame(redraw)}
