@@ -15,12 +15,13 @@ function timeAt(t,x,w){return (x-12-t.offset)*maxDur()/(w*S.zoom)}
 function draw(t,canvas){let w=canvas.clientWidth,h=canvas.clientHeight;if(!w||!h)return;let d=window.devicePixelRatio||1;canvas.width=w*d;canvas.height=h*d;let c=canvas.getContext('2d');c.scale(d,d);let x=12+t.offset,width=t.buf.duration*w*S.zoom/maxDur();c.fillStyle=t.color+'25';c.fillRect(x,8,width,h-16);c.strokeStyle=t.color+'99';c.strokeRect(x,8,width,h-16);c.fillStyle=t.color;let step=Math.max(1,Math.ceil(t.peaks.length/Math.max(1,width)));for(let i=0;i<t.peaks.length;i+=step){let a=0;for(let j=i;j<Math.min(t.peaks.length,i+step);j++)a=Math.max(a,t.peaks[j]);let xx=x+i/t.peaks.length*width,hh=Math.max(1,a*S.amplitude*(h-20)*.48);c.fillRect(xx,h/2-hh,Math.max(1,width*step/t.peaks.length),hh*2)}for(let m of S.markers.filter(m=>m.id===t.id)){let xx=xAt(t,m.time,w);c.fillStyle='#7df2ba';c.fillRect(xx,3,2,h-6);c.font='11px sans-serif';c.fillText(m.label,xx+4,14)}}
 function makeRow(t){let el=document.createElement('div');el.className='take'+(S.active===t.id?' active':'');el.dataset.id=t.id;el.style.height=S.rowHeight+'px';let name=document.createElement('div');name.className='name';let b=document.createElement('b');b.textContent=t.name;let small=document.createElement('small');small.textContent=fmt(t.buf.duration);let pin=document.createElement('button');pin.textContent=S.pinned===t.id?'Unpin':'Pin';pin.onclick=()=>{S.pinned=S.pinned===t.id?null:t.id;render()};b.title=t.name;name.addEventListener('click',e=>{if(e.target.closest('button')||name.dataset.dragged==='1'){name.dataset.dragged='0';return}cue(t.id,0)});name.append(b,small,pin);installGestures(name,t,'labels');let wave=document.createElement('div');wave.className='wave';let canvas=document.createElement('canvas');let cursor=document.createElement('div');cursor.className='cursor';let handle=document.createElement('button');handle.className='handle';handle.textContent='⇆';wave.append(canvas,cursor,handle);el.append(name,wave);wave.addEventListener('click',e=>{if(e.target===handle||wave.dataset.dragged==='1'){wave.dataset.dragged='0';return;}let rect=wave.getBoundingClientRect();cue(t.id,timeAt(t,e.clientX-rect.left,rect.width))});let sx,ox;handle.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();sx=e.clientX;ox=t.offset;handle.setPointerCapture(e.pointerId)});handle.addEventListener('pointermove',e=>{if(sx===undefined)return;t.offset=ox+e.clientX-sx;redraw()});handle.addEventListener('pointerup',()=>sx=undefined);handle.addEventListener('pointercancel',()=>sx=undefined);installGestures(wave,t,'canvas');wave.addEventListener('dblclick',e=>e.preventDefault());return el}
 
-const fingers=new Map();let pinch=null;
+const fingers=new Map();let pinch=null;let scrolling=false;
 function installGestures(area,t,zone){
  area.addEventListener('pointerdown',e=>{
   if(e.target.closest('button,.handle')||e.pointerType==='mouse'||fingers.size>=2)return;
-  fingers.set(e.pointerId,{x:e.clientX,y:e.clientY,area,t,zone});
+  fingers.set(e.pointerId,{x:e.clientX,y:e.clientY,startY:e.clientY,lastY:e.clientY,area,t,zone,moved:false});
   if(fingers.size===2){
+   scrolling=false;
    const p=[...fingers.values()];
    if(p[0].zone!==p[1].zone){fingers.delete(e.pointerId);return}
    const dx=p[1].x-p[0].x,dy=p[1].y-p[0].y;
@@ -29,6 +30,7 @@ function installGestures(area,t,zone){
    pinch={x:(p[0].x+p[1].x)/2,y:midY,d:Math.hypot(dx,dy),
     vertical:Math.abs(dy)>Math.abs(dx),mode:null,zone,zoom:S.zoom,height:S.rowHeight,
     amplitude:S.amplitude,offset:p[0].t.offset,t:p[0].t,
+    offsets:S.takes.map(t=>[t,t.offset]),anchorX:(p[0].x+p[1].x)/2-p[0].area.getBoundingClientRect().left,
     main,anchorY:midY-rect.top,contentY:main.scrollTop+midY-rect.top};
    p.forEach(v=>v.area.dataset.dragged='1');e.preventDefault();
   }
@@ -36,7 +38,14 @@ function installGestures(area,t,zone){
 }
 window.addEventListener('pointermove',e=>{
  if(!fingers.has(e.pointerId))return;
- Object.assign(fingers.get(e.pointerId),{x:e.clientX,y:e.clientY});
+ const finger=fingers.get(e.pointerId);
+ if(!pinch&&fingers.size===1){
+  const dy=e.clientY-finger.lastY;
+  if(Math.abs(e.clientY-finger.startY)>7)finger.moved=true;
+  if(finger.moved){scrolling=true;document.querySelector('main').scrollTop-=dy;e.preventDefault()}
+  finger.lastY=e.clientY;finger.x=e.clientX;finger.y=e.clientY;return;
+ }
+ Object.assign(finger,{x:e.clientX,y:e.clientY});
  if(!pinch||fingers.size!==2)return;
  const p=[...fingers.values()],cx=(p[0].x+p[1].x)/2,cy=(p[0].y+p[1].y)/2;
  const d=Math.hypot(p[1].x-p[0].x,p[1].y-p[0].y);
@@ -50,6 +59,8 @@ window.addEventListener('pointermove',e=>{
  if(pinch.mode==='align')pinch.t.offset=pinch.offset+cx-pinch.x;
  if(pinch.mode==='time'){
   S.zoom=Math.max(.4,Math.min(16,pinch.zoom*d/Math.max(1,pinch.d)));
+  const ratio=S.zoom/pinch.zoom;
+  pinch.offsets.forEach(([take,offset])=>{take.offset=offset+(pinch.anchorX-12-offset)*(1-ratio)});
   $('zoom').textContent=S.zoom.toFixed(1)+'×';
  }
  if(pinch.mode==='amplitude')S.amplitude=Math.max(.5,Math.min(4,pinch.amplitude*d/Math.max(1,pinch.d)));
@@ -67,12 +78,12 @@ window.addEventListener('pointermove',e=>{
 function finishFinger(e){
  if(!fingers.has(e.pointerId))return;
  const hadPinch=!!pinch;
- const area=fingers.get(e.pointerId).area;
+ const finger=fingers.get(e.pointerId),area=finger.area;
  fingers.delete(e.pointerId);
  if(fingers.size<2)pinch=null;
  // A normal one-finger tap must never be marked as a drag.
- if(hadPinch)area.dataset.dragged='1';
- if(!fingers.size&&hadPinch)setTimeout(()=>document.querySelectorAll('.wave,.name').forEach(w=>w.dataset.dragged='0'),450);
+ if(hadPinch||finger.moved)area.dataset.dragged='1';
+ if(!fingers.size&&(hadPinch||finger.moved))setTimeout(()=>document.querySelectorAll('.wave,.name').forEach(w=>w.dataset.dragged='0'),450);
 }
 window.addEventListener('pointerup',finishFinger);
 window.addEventListener('pointercancel',finishFinger);
