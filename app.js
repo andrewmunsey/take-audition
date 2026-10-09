@@ -7,19 +7,20 @@ const pos=()=>S.playing?Math.min(find(S.active).buf.duration,S.base+ctx.currentT
 function stop(){if(S.playing){S.position=pos();S.source?.stop();S.source=null;S.playing=false}if(S.pending){S.active=S.pending.id;S.position=S.pending.time;S.pending=null}cancelAnimationFrame(frame);render()}
 function play(){if(S.playing){stop();return}let t=find(S.active);if(!t)return;ctx.resume();if(S.position>=t.buf.duration)S.position=0;let src=ctx.createBufferSource();src.buffer=t.buf;src.connect(ctx.destination);S.source=src;S.base=S.position;S.started=ctx.currentTime;S.playing=true;src.onended=()=>{if(S.source===src&&S.playing)stop()};src.start(0,S.position);tick();render()}
 function tick(){if(!S.playing)return;if(pos()>=find(S.active).buf.duration-.02){stop();return}cursors();frame=requestAnimationFrame(tick)}
-function cue(id,time){time=Math.max(0,Math.min(find(id).buf.duration,time));if(S.playing)S.pending={id,time};else{S.active=id;S.position=time;S.pending=null}render()}
+function cue(id,time){const t=find(id);if(!t)return;time=Math.max(0,Math.min(t.buf.duration,time));if(S.playing){const old=S.source;S.source=null;if(old){old.onended=null;try{old.stop()}catch(e){}}const src=ctx.createBufferSource();src.buffer=t.buf;src.connect(ctx.destination);S.active=id;S.position=time;S.base=time;S.started=ctx.currentTime;S.pending=null;S.source=src;src.onended=()=>{if(S.source===src&&S.playing)stop()};if(time<t.buf.duration)src.start(0,time);else{S.playing=false;S.source=null;cancelAnimationFrame(frame)}}else{S.active=id;S.position=time;S.pending=null}render()}
 function peaks(buf){let a=buf.getChannelData(0),step=Math.max(1,Math.floor(a.length/1300)),out=[];for(let i=0;i<a.length;i+=step){let m=0;for(let j=i;j<Math.min(a.length,i+step);j+=Math.max(1,Math.floor(step/12)))m=Math.max(m,Math.abs(a[j]));out.push(m)}return out}
 async function load(files){ctx ||=new (window.AudioContext||window.webkitAudioContext)();for(let f of files){try{let buf=await ctx.decodeAudioData(await f.arrayBuffer());let id=`t${Date.now()}_${Math.random()}`;S.takes.push({id,name:f.name,buf,peaks:peaks(buf),offset:0,color:colors[S.takes.length%colors.length]});S.active ||=id}catch(e){alert(`Cannot decode ${f.name}: ${e.message}`)}}render()}
 function xAt(t,time,w){return 12+t.offset+time*w*S.zoom/maxDur()}
 function timeAt(t,x,w){return (x-12-t.offset)*maxDur()/(w*S.zoom)}
 function draw(t,canvas){let w=canvas.clientWidth,h=canvas.clientHeight;if(!w||!h)return;let d=window.devicePixelRatio||1;canvas.width=w*d;canvas.height=h*d;let c=canvas.getContext('2d');c.scale(d,d);let x=12+t.offset,width=t.buf.duration*w*S.zoom/maxDur();c.fillStyle=t.color+'25';c.fillRect(x,8,width,h-16);c.strokeStyle=t.color+'99';c.strokeRect(x,8,width,h-16);c.fillStyle=t.color;let step=Math.max(1,Math.ceil(t.peaks.length/Math.max(1,width)));for(let i=0;i<t.peaks.length;i+=step){let a=0;for(let j=i;j<Math.min(t.peaks.length,i+step);j++)a=Math.max(a,t.peaks[j]);let xx=x+i/t.peaks.length*width,hh=Math.max(1,a*S.amplitude*(h-20)*.48);c.fillRect(xx,h/2-hh,Math.max(1,width*step/t.peaks.length),hh*2)}for(let m of S.markers.filter(m=>m.id===t.id)){let xx=xAt(t,m.time,w);c.fillStyle='#7df2ba';c.fillRect(xx,3,2,h-6);c.font='11px sans-serif';c.fillText(m.label,xx+4,14)}}
-function makeRow(t){let el=document.createElement('div');el.className='take'+(S.active===t.id?' active':'');el.dataset.id=t.id;el.style.height=S.rowHeight+'px';let name=document.createElement('div');name.className='name';let b=document.createElement('b');b.textContent=t.name;let small=document.createElement('small');small.textContent=fmt(t.buf.duration);let pin=document.createElement('button');pin.textContent=S.pinned===t.id?'Unpin':'Pin';pin.onclick=()=>{S.pinned=S.pinned===t.id?null:t.id;render()};b.title=t.name;name.addEventListener('click',e=>{if(e.target.closest('button')||name.dataset.dragged==='1'){name.dataset.dragged='0';return}cue(t.id,0)});name.append(b,small,pin);installGestures(name,t,'labels');let wave=document.createElement('div');wave.className='wave';let canvas=document.createElement('canvas');let cursor=document.createElement('div');cursor.className='cursor';let handle=document.createElement('button');handle.className='handle';handle.textContent='⇆';wave.append(canvas,cursor,handle);el.append(name,wave);wave.addEventListener('click',e=>{if(e.target===handle||wave.dataset.dragged==='1'){wave.dataset.dragged='0';return;}let rect=wave.getBoundingClientRect();cue(t.id,timeAt(t,e.clientX-rect.left,rect.width))});let sx,ox;handle.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();sx=e.clientX;ox=t.offset;handle.setPointerCapture(e.pointerId)});handle.addEventListener('pointermove',e=>{if(sx===undefined)return;t.offset=ox+e.clientX-sx;redraw()});handle.addEventListener('pointerup',()=>sx=undefined);handle.addEventListener('pointercancel',()=>sx=undefined);installGestures(wave,t,'canvas');wave.addEventListener('dblclick',e=>e.preventDefault());return el}
+function makeRow(t){let el=document.createElement('div');el.className='take'+(S.active===t.id?' active':'');el.dataset.id=t.id;el.style.height=S.rowHeight+'px';let name=document.createElement('div');name.className='name';let b=document.createElement('b');b.textContent=t.name;let small=document.createElement('small');small.textContent=fmt(t.buf.duration);let pin=document.createElement('button');pin.textContent=S.pinned===t.id?'Unpin':'Pin';pin.onclick=()=>{S.pinned=S.pinned===t.id?null:t.id;render()};b.title=t.name;name.addEventListener('click',e=>{if(e.target.closest('button')||(name.dataset.dragged==='1'||Date.now()<suppressClickUntil)){name.dataset.dragged='0';return}cue(t.id,0)});name.append(b,small,pin);installGestures(name,t,'labels');let wave=document.createElement('div');wave.className='wave';let canvas=document.createElement('canvas');let cursor=document.createElement('div');cursor.className='cursor';let handle=document.createElement('button');handle.className='handle';handle.textContent='⇆';wave.append(canvas,cursor,handle);el.append(name,wave);wave.addEventListener('click',e=>{if(e.target===handle||(wave.dataset.dragged==='1'||Date.now()<suppressClickUntil)){wave.dataset.dragged='0';return;}let rect=wave.getBoundingClientRect();cue(t.id,timeAt(t,e.clientX-rect.left,rect.width))});let sx,ox;handle.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();sx=e.clientX;ox=t.offset;handle.setPointerCapture(e.pointerId)});handle.addEventListener('pointermove',e=>{if(sx===undefined)return;t.offset=ox+e.clientX-sx;redraw()});handle.addEventListener('pointerup',()=>sx=undefined);handle.addEventListener('pointercancel',()=>sx=undefined);installGestures(wave,t,'canvas');installGestures(el,t,'canvas',true);wave.addEventListener('dblclick',e=>e.preventDefault());return el}
 
-const fingers=new Map();let pinch=null;let scrolling=false;
-function installGestures(area,t,zone){
+const fingers=new Map();let pinch=null;let scrolling=false;let suppressClickUntil=0;
+function installGestures(area,t,zone,gapOnly=false){
  area.addEventListener('pointerdown',e=>{
+  if(gapOnly&&e.target!==area)return;
   if(e.target.closest('button,.handle')||e.pointerType==='mouse'||fingers.size>=2)return;
-  fingers.set(e.pointerId,{x:e.clientX,y:e.clientY,startY:e.clientY,lastY:e.clientY,area,t,zone,moved:false});
+  fingers.set(e.pointerId,{x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,lastX:e.clientX,lastY:e.clientY,area,t,zone,moved:false});
   if(fingers.size===2){
    scrolling=false;
    const p=[...fingers.values()];
@@ -30,7 +31,7 @@ function installGestures(area,t,zone){
    pinch={x:(p[0].x+p[1].x)/2,y:midY,d:Math.hypot(dx,dy),
     vertical:Math.abs(dy)>Math.abs(dx),mode:null,zone,zoom:S.zoom,height:S.rowHeight,
     amplitude:S.amplitude,offset:p[0].t.offset,t:p[0].t,
-    offsets:S.takes.map(t=>[t,t.offset]),anchorX:(p[0].x+p[1].x)/2-p[0].area.getBoundingClientRect().left,
+    offsets:S.takes.map(t=>[t,t.offset]),anchorX:(p[0].x+p[1].x)/2-(p[0].area.closest('.take')?.querySelector('.wave')||p[0].area).getBoundingClientRect().left,
     main,anchorY:midY-rect.top,contentY:main.scrollTop+midY-rect.top};
    p.forEach(v=>v.area.dataset.dragged='1');e.preventDefault();
   }
@@ -40,10 +41,10 @@ window.addEventListener('pointermove',e=>{
  if(!fingers.has(e.pointerId))return;
  const finger=fingers.get(e.pointerId);
  if(!pinch&&fingers.size===1){
-  const dy=e.clientY-finger.lastY;
-  if(Math.abs(e.clientY-finger.startY)>7)finger.moved=true;
-  if(finger.moved){scrolling=true;document.querySelector('main').scrollTop-=dy;e.preventDefault()}
-  finger.lastY=e.clientY;finger.x=e.clientX;finger.y=e.clientY;return;
+  const dy=e.clientY-finger.lastY,dx=e.clientX-finger.lastX;
+  if(Math.hypot(e.clientX-finger.startX,e.clientY-finger.startY)>8)finger.moved=true;
+  if(finger.moved){scrolling=true;const main=document.querySelector('main');main.scrollTop-=dy;if(finger.zone==='canvas'){S.takes.forEach(t=>t.offset+=dx);redraw()}e.preventDefault()}
+  finger.lastX=e.clientX;finger.lastY=e.clientY;finger.x=e.clientX;finger.y=e.clientY;return;
  }
  Object.assign(finger,{x:e.clientX,y:e.clientY});
  if(!pinch||fingers.size!==2)return;
@@ -51,9 +52,9 @@ window.addEventListener('pointermove',e=>{
  const d=Math.hypot(p[1].x-p[0].x,p[1].y-p[0].y);
  const travel=Math.hypot(cx-pinch.x,cy-pinch.y),spread=Math.abs(d-pinch.d);
  if(!pinch.mode){
-  if(travel<7&&spread<7)return;
-  if(travel>spread*1.4&&pinch.zone==='canvas')pinch.mode='align';
-  else if(spread>travel*1.1)pinch.mode=pinch.vertical?(pinch.zone==='labels'?'height':'amplitude'):(pinch.zone==='canvas'?'time':null);
+  if(travel<11&&spread<11)return;
+  if(travel>spread*1.5&&pinch.zone==='canvas')pinch.mode='align';
+  else if(spread>travel*1.25)pinch.mode=pinch.vertical?(pinch.zone==='labels'?'height':'amplitude'):(pinch.zone==='canvas'?'time':null);
   else return;
  }
  if(pinch.mode==='align')pinch.t.offset=pinch.offset+cx-pinch.x;
@@ -82,8 +83,8 @@ function finishFinger(e){
  fingers.delete(e.pointerId);
  if(fingers.size<2)pinch=null;
  // A normal one-finger tap must never be marked as a drag.
- if(hadPinch||finger.moved)area.dataset.dragged='1';
- if(!fingers.size&&(hadPinch||finger.moved))setTimeout(()=>document.querySelectorAll('.wave,.name').forEach(w=>w.dataset.dragged='0'),450);
+ if(hadPinch||finger.moved){area.dataset.dragged='1';suppressClickUntil=Date.now()+500;if(area.classList.contains('take'))area.querySelector('.wave').dataset.dragged='1'}
+ if(!fingers.size&&(hadPinch||finger.moved))setTimeout(()=>document.querySelectorAll('.wave,.name,.take').forEach(w=>w.dataset.dragged='0'),500);
 }
 window.addEventListener('pointerup',finishFinger);
 window.addEventListener('pointercancel',finishFinger);
