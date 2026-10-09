@@ -82,7 +82,7 @@ function finishFinger(e){
  if(!fingers.has(e.pointerId))return;
  clearTimeout(loupeTimer);clearTimeout(liftTimer);const hadPinch=!!pinch;const endedMove=pinch?.mode==='move',moveTake=pinch?.t,moveY=pinch?.y,moveRow=pinch?.tRow;
  const finger=fingers.get(e.pointerId),area=finger.area;
- fingers.delete(e.pointerId);if(finger.loupe){hideLoupe();finger.moved=true}if(endedMove&&fingers.size===1){const other=[...fingers.values()][0];if(Math.abs(other.y-moveY)>18&&moveTake&&S.pinned!==moveTake.id)reorder(moveTake,other.y);else if(moveRow)moveRow.style.transform='';}if(fingers.size<2)pinch=null;
+ fingers.delete(e.pointerId);if(finger.loupe){hideLoupe();finger.moved=true}if(endedMove&&fingers.size===1){const other=[...fingers.values()][0];if(Math.abs(e.clientY-moveY)>18&&moveTake&&S.pinned!==moveTake.id)reorder(moveTake,e.clientY);else if(moveRow)moveRow.style.transform='';}if(fingers.size<2)pinch=null;
  // A normal one-finger tap must never be marked as a drag.
  if(hadPinch||finger.moved){area.dataset.dragged='1';suppressClickUntil=Date.now()+500;if(area.classList.contains('take'))area.querySelector('.wave').dataset.dragged='1'}
  if(!fingers.size&&(hadPinch||finger.moved))setTimeout(()=>document.querySelectorAll('.wave,.name,.take').forEach(w=>w.dataset.dragged='0'),500);
