@@ -66,10 +66,13 @@ window.addEventListener('pointermove',e=>{
 },{passive:false});
 function finishFinger(e){
  if(!fingers.has(e.pointerId))return;
- const area=fingers.get(e.pointerId).area;fingers.delete(e.pointerId);
+ const hadPinch=!!pinch;
+ const area=fingers.get(e.pointerId).area;
+ fingers.delete(e.pointerId);
  if(fingers.size<2)pinch=null;
- area.dataset.dragged='1';
- if(!fingers.size)setTimeout(()=>document.querySelectorAll('.wave,.name').forEach(w=>w.dataset.dragged='0'),450);
+ // A normal one-finger tap must never be marked as a drag.
+ if(hadPinch)area.dataset.dragged='1';
+ if(!fingers.size&&hadPinch)setTimeout(()=>document.querySelectorAll('.wave,.name').forEach(w=>w.dataset.dragged='0'),450);
 }
 window.addEventListener('pointerup',finishFinger);
 window.addEventListener('pointercancel',finishFinger);
